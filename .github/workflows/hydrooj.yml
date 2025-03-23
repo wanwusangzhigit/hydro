@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "hydro oj"
-      - run: snap install curl
+      - run: sudo snap install curl
       - name: Check out repository code
         uses: actions/checkout@v4
       - run: LANG=zh . <(curl https://hydro.ac/setup.sh)
