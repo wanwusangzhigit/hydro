@@ -9,8 +9,8 @@ jobs:
       - run: sudo snap install curl
       - name: Check out repository code
         uses: actions/checkout@v4
-      - run: LANG=zh . <(curl https://hydro.ac/setup.sh)
-      - run: hydrooj cli user setSuperAdmin 2
+      - run: sudo LANG=zh . <(curl https://hydro.ac/setup.sh)
+      - run: sudo hydrooj cli user setSuperAdmin 2
       - name: List files in the repository
         run: |
           ls ${{ github.workspace }}
