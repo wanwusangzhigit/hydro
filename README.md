@@ -1,9 +1,7 @@
 # hydro
 ## 概述
-这是一个基于`c#`和`python`的适用于`hydro oj`的`oj-helper`,`c#`实现`ui`，`python`实现爬虫。
+这是一个基于`python`的适用于`hydro oj`的`oj-helper`。
 ## 完成情况
-### c#
-- [x] 新建C#模板
 
 ### python
 - [x] 完成题目爬取部分
