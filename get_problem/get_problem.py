@@ -1,83 +1,72 @@
 #!/usr/bin/env python3
-# pip install requests beautifulsoup4
-
-import os
-import re
-import sys
-import json
-import requests
+"""
+by jason
+2025-07-26
+copyright wanwusangzhi 2024-2025
+"""
+import requests, re, sys
 from bs4 import BeautifulSoup
+import html2text
 
-# ========== 用户配置 ==========
-BASE_URL = 'https://hydro.ac'        # Hydro 站点根地址
-USERNAME = 'your_username'
-PASSWORD = 'your_password'
+# ========== 按需修改 ==========
+BASE_URL = input("")       # 你的站点根域名
+LOGIN_URL = f'{BASE_URL}/login' # login page
+Problem_ID = input("")
+HOME_URL = f'{BASE_URL}/p/{Problem_ID}'
+USERNAME  = input("")
+PASSWORD  = input("")
 # ===============================
 
-LOGIN_URL   = f'{BASE_URL}/login'
-PROBLEM_API = f'{BASE_URL}/api/problem'     # REST 风格接口
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                  'AppleWebKit/537.36 (KHTML, like Gecko) '
-                  'Chrome/120.0.0.0 Safari/537.36'
-}
+def main():
+    s = requests.Session()
+    s.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                      'AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/120.0.0.0 Safari/537.36'
+    })
 
-session = requests.Session()
-session.headers.update(HEADERS)
+    # 1. 拉登录页，取 csrf
+    login_html = s.get(LOGIN_URL).text
+    soup = BeautifulSoup(login_html, 'lxml')
+    csrf = (soup.find('meta', attrs={'name': 'csrf-token'}) or
+            soup.find('input', attrs={'name': re.compile(r'csrf|_csrf')}))
+    if csrf:
+        csrf = csrf.get('content') or csrf['value']
+    else:
+        csrf = ''          # 站点没开 csrf 验证
 
-# ---------- 1. 登录 ----------
-def login() -> None:
-    login_page = session.get(LOGIN_URL)
-    csrf = re.search(r'name="csrf_token"\s+value="([^"]+)"', login_page.text).group(1)
-
-    resp = session.post(LOGIN_URL, data={
+    # 2. 提交账号密码
+    resp = s.post(LOGIN_URL, data={
         'uname': USERNAME,
         'password': PASSWORD,
-        'csrf_token': csrf
+        '_csrf': csrf
     }, allow_redirects=False)
+
     if resp.status_code != 302:
-        raise RuntimeError('登录失败，请检查账号密码')
+        raise RuntimeError('登录失败，请检查账号密码或抓包核对字段名')
 
-# ---------- 2. 拉取题目 ----------
-def fetch_problem(pid: str, save_dir: str = '.') -> None:
-    """pid 形如 P1000 / B / A+B 均可"""
-    # 2.1 获取题面（Markdown）
-    info_resp = session.get(f'{PROBLEM_API}/{pid}')
-    info_resp.raise_for_status()
-    info = info_resp.json()
-
-    title = info['title']
-    md = info['content']                    # 已经是 Markdown
-    tags = ', '.join(info.get('tag', []))
-    limits = f"时间限制：{info['time_limit']} ms  \n内存限制：{info['memory_limit']} MiB"
-
-    # 2.2 保存题面
-    os.makedirs(save_dir, exist_ok=True)
-    md_path = os.path.join(save_dir, f'{pid}.md')
-    with open(md_path, 'w', encoding='utf-8') as f:
-        f.write(f"# {pid} - {title}\n\n")
-        f.write(f"{tags}\n\n{limits}\n\n---\n\n")
-        f.write(md)
-    print(f'已保存 {md_path}')
-
-    # 2.3 下载测试数据
-    data_resp = session.get(f'{PROBLEM_API}/{pid}/testdata')
-    data_resp.raise_for_status()
-    data = data_resp.json()
-    for filename, content in data.items():
-        with open(os.path.join(save_dir, filename), 'wb') as f:
-            f.write(content.encode() if isinstance(content, str) else content)
-    print(f'测试数据已保存到 {save_dir}/')
-
-# ---------- 3. 主函数 ----------
-def main():
-    if len(sys.argv) < 2:
-        print('用法：python hydro_crawler.py <题号>')
-        sys.exit(1)
-
-    pid = sys.argv[1]
-    login()
-    fetch_problem(pid, pid)
+    # 3. 登录成功后拿首页
+    home_html = s.get(HOME_URL).text
+    soup = BeautifulSoup(home_html, 'html.parser')
+    for katex_span in soup.find_all('span', class_='katex'):
+        annotation = katex_span.find('annotation')
+        if annotation:
+            katex_span.replace_with(f"${annotation.text}$")  # 可选：加 $ 变成 LaTeX 公式
+        # 查找class="problem-content"的div
+    problem_content = soup.find('div', class_='problem-content')
+    html=problem_content
+    print(html)
+    # 创建 html2text 处理器
+    h = html2text.HTML2Text()
+    h.ignore_links = False  # 不忽略链接
+    h.bypass_tables = False  # 不忽略表格
+    h.ignore_images = False  # 不忽略图片
+    h.body_width = 0  # 不自动换行
+    		# 转换 HTML 为 Markdown
+    markdown = h.handle(str(html))
+    print(markdown)		
+    with open("p.md","w",encoding='utf-8') as f:
+        f.write(markdown)
 
 if __name__ == '__main__':
     main()
