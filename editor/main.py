@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 cpp_tkeditor.py – 最终完整可运行版
+• Tab 固定 4 空格
+• { 自动补全 {} 并把光标放中间
+• } 自动回退 4 空格
 • # 注释绿色高亮
-• 括号/引号自动补全
-• 智能回车缩进
-• 行号、主题、交互运行等全部保留
+• Prism.js 主题
+• 交互 stdin
 """
 import os
 import re
@@ -52,7 +54,6 @@ KEYWORDS = {
     "unsigned", "using", "virtual", "void", "volatile", "while"
 }
 
-# ---------- Token 规则 ----------
 TOKEN_RULES = [
     (r'#.*', 'comment'),                      # # 注释
     (r'//.*?$', 'comment'),
@@ -68,6 +69,7 @@ TOKEN_RULES = [
 MAX_OUTPUT = 1 << 20
 RUN_TIMEOUT = 10
 
+
 class CppEditor(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -80,9 +82,33 @@ class CppEditor(tk.Tk):
         self.build_ui()
         self.bind_all("<Control-o>", lambda e: self.open_file())
         self.bind_all("<Control-s>", lambda e: self.save_file())
+        self.bind_all("<Control-S>", lambda e: self.save_as_file())
         self.bind_all("<F5>", lambda e: self.build_run())
         self.apply_theme()
-
+        # --------- 关键绑定 ---------
+        # 1) Tab → 4 空格
+        self.text.bind("<Tab>", lambda e: (self.text.insert("insert", "    "), "break"))
+        self.text.bind("{", lambda e: (self.text.insert("insert", "}"),
+                                       self.text.mark_set("insert", "insert-1c"),
+                                       "break"))
+        pairs = {"parenleft": ")", "bracketleft": "]", "quotedbl": '"', "apostrophe": "'"}
+        for sym, pair in pairs.items():
+            self.text.bind(f"<{sym}>",
+                           lambda e, p=pair: (self.text.insert("insert", p),
+                                             self.text.mark_set("insert", "insert-1c"),
+                                             "break"))
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+    def on_close(self):
+        """退出前询问是否保存"""
+        if self.text.edit_modified():     # 有未保存内容
+            ans = messagebox.askyesnocancel("退出", "文件未保存，是否保存？")
+            if ans is True:               # 是 → 保存
+                self.save_file()
+                if not self.current_file: # 另存为可能被取消
+                    return                # 取消关闭
+            elif ans is None:             # 取消
+                return
+        self.destroy()                    # 安全退出
     # ---------- UI ----------
     def build_ui(self):
         pan = ttk.PanedWindow(self, orient="vertical")
@@ -97,10 +123,8 @@ class CppEditor(tk.Tk):
                             insertwidth=2, tabs="2c")
         self.text.pack(side="left", fill="both", expand=1)
         self.text.bind("<KeyRelease>", self.on_key)
-        self.text.bind("<Button-1>",  self.on_key)
-        self.text.bind("<Return>",    self.smart_indent)
-        # 自动补全绑定
-        self.text.bind("<KeyRelease>", self.auto_complete, add="+")
+        self.text.bind("<Button-1>", self.on_key)
+        self.text.bind("<Return>", self.smart_indent)
 
         io_frm = ttk.Frame(pan)
         pan.add(io_frm, weight=0)
@@ -163,13 +187,6 @@ class CppEditor(tk.Tk):
         if path:
             self.current_file = path
             self.save_file()
-
-    # ---------- 输出 ----------
-    def out_write(self, msg):
-        self.out.config(state="normal")
-        self.out.delete(1.0, "end")
-        self.out.insert("1.0", msg)
-        self.out.config(state="disabled")
 
     # ---------- 运行 ----------
     def build_run(self):
@@ -272,22 +289,14 @@ class CppEditor(tk.Tk):
         line = self.text.get("insert linestart", "insert")
         indent = len(line) - len(line.lstrip())
 
-        # 如果上一行以 { 结尾且本行开头是 }，则回退 4 空格
+        # 抵消缩进：上一行以 { 结尾且本行只有 }
         prev_line = self.text.get("insert linestart - 1 lines", "insert linestart").rstrip()
         if prev_line.endswith('{') and line.lstrip() == '}':
             indent = max(0, indent - 4)
 
         self.text.insert("insert", "\n" + " " * indent)
         return "break"
-    # ---------- 自动补全 ----------
-    PAIRS = {"parenleft": "()", "bracketleft": "[]", "braceleft": "{}",
-             "quotedbl": '""', "apostrophe": "''"}
-    def auto_complete(self, event):
-        key = event.keysym
-        if key in self.PAIRS:
-            pair = self.PAIRS[key]
-            self.text.insert("insert", pair[1])
-            self.text.mark_set("insert", "insert-1c")
+
     # ---------- Prism 高亮 ----------
     def highlight_all(self):
         self.text.tag_remove("all", 1.0, "end")
