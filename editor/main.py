@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 cpp_tkeditor.py – 最终完整可运行版
-• 打开文件立即高亮
-• 无 system("pause")
-• 交互 stdin
-• 行号随主题变色
+• # 注释绿色高亮
+• 括号/引号自动补全
+• 智能回车缩进
+• 行号、主题、交互运行等全部保留
 """
 import os
 import re
@@ -17,38 +17,61 @@ import tkinter as tk
 from queue import Queue, Empty
 from tkinter import ttk, filedialog, messagebox, font
 
-# ---------------- 主题 & 关键字 ----------------
-THEMES = {
-    "light": {"bg": "#ffffff", "fg": "#000000", "sel": "#c8c8c8",
-              "kw": "#0000ff", "comment": "#008000", "string": "#a31515"},
-    "dark":  {"bg": "#1e1e1e", "fg": "#d4d4d4", "sel": "#264f78",
-              "kw": "#569cd6", "comment": "#6a9955", "string": "#ce9178"}
+# ---------- Prism 主题 ----------
+PRISM_COLORS = {
+    "light": {
+        "bg": "#ffffff", "fg": "#000000", "sel": "#c8c8c8",
+        "keyword": {"foreground": "#0000ff"},
+        "string":  {"foreground": "#a31515"},
+        "comment": {"foreground": "#008000"},
+        "number":  {"foreground": "#098658"},
+        "function": {"foreground": "#795da3"},
+        "operator": {"foreground": "#d73a49"},
+    },
+    "dark": {
+        "bg": "#1e1e1e", "fg": "#d4d4d4", "sel": "#264f78",
+        "keyword": {"foreground": "#569cd6"},
+        "string":  {"foreground": "#ce9178"},
+        "comment": {"foreground": "#6a9955"},
+        "number":  {"foreground": "#b5cea8"},
+        "function": {"foreground": "#dcdcaa"},
+        "operator": {"foreground": "#d4d4d4"},
+    }
 }
+
 KEYWORDS = {
     "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor",
-    "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t",
-    "class", "compl", "concept", "const", "consteval", "constexpr", "const_cast",
-    "continue", "co_await", "co_return", "co_yield", "decltype", "default",
-    "delete", "do", "double", "dynamic_cast", "else", "enum", "explicit",
-    "export", "extern", "false", "float", "for", "friend", "goto", "if",
-    "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not",
-    "not_eq", "nullptr", "operator", "or", "or_eq", "private", "protected",
-    "public", "register", "reinterpret_cast", "requires", "return", "short",
-    "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
-    "switch", "template", "this", "thread_local", "throw", "true", "try",
-    "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual",
-    "void", "volatile", "wchar_t", "while", "xor", "xor_eq"
+    "bool", "break", "case", "catch", "char", "class", "compl", "const",
+    "consteval", "constexpr", "continue", "decltype", "default", "delete",
+    "do", "double", "else", "enum", "explicit", "export", "extern", "false",
+    "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable",
+    "namespace", "new", "noexcept", "not", "nullptr", "operator", "or",
+    "private", "protected", "public", "register", "reinterpret_cast", "return",
+    "short", "signed", "sizeof", "static", "struct", "switch", "template",
+    "this", "throw", "true", "try", "typedef", "typeid", "typename", "union",
+    "unsigned", "using", "virtual", "void", "volatile", "while"
 }
-BRACKETS = {"(": ")", "[": "]", "{": "}"}
-RBRACKETS = {v: k for k, v in BRACKETS.items()}
-MAX_OUTPUT = 1 * 1024 * 1024  # 1 MB
-RUN_TIMEOUT = 10              # 秒
 
-# ---------------- 主窗口 ----------------
+# ---------- Token 规则 ----------
+TOKEN_RULES = [
+    (r'#.*', 'comment'),                      # # 注释
+    (r'//.*?$', 'comment'),
+    (r'/\*.*?\*/', 'comment', re.S),
+    (r'"([^"\\]|\\.)*"', 'string'),
+    (r"'([^'\\]|\\.)*'", 'string'),
+    (r'\b(?:' + '|'.join(KEYWORDS) + r')\b', 'keyword'),
+    (r'\b\d+(?:\.\d+)?\b', 'number'),
+    (r'\b[A-Za-z_]\w*(?=\s*\()', 'function'),
+    (r'[+\-*/=<>!&|%^~]+', 'operator'),
+]
+
+MAX_OUTPUT = 1 << 20
+RUN_TIMEOUT = 10
+
 class CppEditor(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Tk C++ Editor")
+        self.title("Tk C++ Editor (Prism.js)")
         self.geometry("950x750")
         self.current_file = None
         self.theme = "light"
@@ -57,7 +80,6 @@ class CppEditor(tk.Tk):
         self.build_ui()
         self.bind_all("<Control-o>", lambda e: self.open_file())
         self.bind_all("<Control-s>", lambda e: self.save_file())
-        self.bind_all("<Control-S>", lambda e: self.save_as_file())
         self.bind_all("<F5>", lambda e: self.build_run())
         self.apply_theme()
 
@@ -66,7 +88,6 @@ class CppEditor(tk.Tk):
         pan = ttk.PanedWindow(self, orient="vertical")
         pan.pack(fill="both", expand=1)
 
-        # 编辑区
         edit_frm = ttk.Frame(pan)
         pan.add(edit_frm, weight=1)
         self.line_text = tk.Text(edit_frm, width=4, padx=4, takefocus=0,
@@ -78,8 +99,9 @@ class CppEditor(tk.Tk):
         self.text.bind("<KeyRelease>", self.on_key)
         self.text.bind("<Button-1>",  self.on_key)
         self.text.bind("<Return>",    self.smart_indent)
+        # 自动补全绑定
+        self.text.bind("<KeyRelease>", self.auto_complete, add="+")
 
-        # I/O 区
         io_frm = ttk.Frame(pan)
         pan.add(io_frm, weight=0)
         self.out = tk.Text(io_frm, height=10, state="disabled", font=self.mono)
@@ -105,9 +127,10 @@ class CppEditor(tk.Tk):
         run_menu.add_command(label="Compile & Run (F5)", command=self.build_run)
         run_menu.add_command(label="Kill", command=self.kill_run)
         m.add_cascade(label="Run", menu=run_menu)
-        view_menu = tk.Menu(m, tearoff=0)
-        view_menu.add_command(label="Toggle Dark/Light", command=self.toggle_theme)
-        m.add_cascade(label="View", menu=view_menu)
+        theme_menu = tk.Menu(m, tearoff=0)
+        theme_menu.add_command(label="Prism Light", command=lambda: self.switch_theme("light"))
+        theme_menu.add_command(label="Prism Dark",  command=lambda: self.switch_theme("dark"))
+        m.add_cascade(label="Theme", menu=theme_menu)
 
     # ---------- 文件 ----------
     def new_file(self):
@@ -118,15 +141,14 @@ class CppEditor(tk.Tk):
 
     def open_file(self, path=None):
         if not path:
-            path = filedialog.askopenfilename(
-                filetypes=[("C/C++", "*.c *.cpp *.h *.hpp"), ("All", "*")])
+            path = filedialog.askopenfilename(filetypes=[("C/C++", "*.c *.cpp *.h *.hpp"), ("All", "*")])
         if path:
             self.current_file = path
             with open(path, "r", encoding="utf-8") as f:
                 self.text.delete(1.0, "end")
                 self.text.insert("1.0", f.read())
             self.title(f"{os.path.basename(path)} – Tk C++ Editor")
-            self.on_key()  # 立即高亮
+            self.on_key()
 
     def save_file(self):
         if self.current_file:
@@ -184,8 +206,7 @@ class CppEditor(tk.Tk):
 
     def reader_thread(self):
         q = Queue()
-        threading.Thread(target=self._enqueue_output,
-                         args=(self.running.stdout, q), daemon=True).start()
+        threading.Thread(target=self._enqueue_output, args=(self.running.stdout, q), daemon=True).start()
         out = []
         try:
             while self.running.poll() is None:
@@ -218,20 +239,20 @@ class CppEditor(tk.Tk):
             self.stdin_entry.delete(0, "end")
 
     # ---------- 主题 ----------
+    def switch_theme(self, theme_name):
+        self.theme = theme_name
+        self.apply_theme()
+
     def apply_theme(self):
-        c = THEMES[self.theme]
+        c = PRISM_COLORS[self.theme]
         for w in (self.text, self.out):
             w.config(bg=c["bg"], fg=c["fg"], selectbackground=c["sel"],
                      insertbackground=c["fg"])
         self.line_text.config(bg=c["bg"] if self.theme == "dark" else "#f0f0f0",
                               fg=c["fg"])
-        for tag, color in [("keyword", c["kw"]), ("comment", c["comment"]),
-                           ("string", c["string"]), ("char", c["string"])]:
-            self.text.tag_config(tag, foreground=color)
-
-    def toggle_theme(self):
-        self.theme = "dark" if self.theme == "light" else "light"
-        self.apply_theme()
+        for tag, style in c.items():
+            if tag not in ("bg", "fg", "sel"):
+                self.text.tag_config(tag, **style)
 
     # ---------- 行号 ----------
     def update_line_numbers(self):
@@ -242,7 +263,7 @@ class CppEditor(tk.Tk):
         self.line_text.config(state="disabled")
 
     # ---------- 事件 ----------
-    def on_key(self, *_):
+    def on_key(self, event=None):
         self.update_line_numbers()
         self.highlight_all()
 
@@ -250,31 +271,37 @@ class CppEditor(tk.Tk):
     def smart_indent(self, event):
         line = self.text.get("insert linestart", "insert")
         indent = len(line) - len(line.lstrip())
-        if line.rstrip().endswith("{"):
-            indent += 4
+
+        # 如果上一行以 { 结尾且本行开头是 }，则回退 4 空格
+        prev_line = self.text.get("insert linestart - 1 lines", "insert linestart").rstrip()
+        if prev_line.endswith('{') and line.lstrip() == '}':
+            indent = max(0, indent - 4)
+
         self.text.insert("insert", "\n" + " " * indent)
         return "break"
-
-    # ---------- 高亮 ----------
+    # ---------- 自动补全 ----------
+    PAIRS = {"parenleft": "()", "bracketleft": "[]", "braceleft": "{}",
+             "quotedbl": '""', "apostrophe": "''"}
+    def auto_complete(self, event):
+        key = event.keysym
+        if key in self.PAIRS:
+            pair = self.PAIRS[key]
+            self.text.insert("insert", pair[1])
+            self.text.mark_set("insert", "insert-1c")
+    # ---------- Prism 高亮 ----------
     def highlight_all(self):
+        self.text.tag_remove("all", 1.0, "end")
         first = int(self.text.index("@0,0").split(".")[0])
         last = int(self.text.index(f"@0,{self.text.winfo_height()}").split(".")[0])
         start, end = f"{max(1, first-3)}.0", f"{last+3}.0"
-        for tag in ("keyword", "comment", "string", "char"):
-            self.text.tag_remove(tag, start, end)
         code = self.text.get(start, end)
-        pat_map = [
-            (r'\b(' + '|'.join(KEYWORDS) + r')\b', "keyword"),
-            (r'//.*?$', "comment"),
-            (r'/\*.*?\*/', "comment"),
-            (r'"([^"\\]|\\.)*"', "string"),
-            (r"'([^'\\]|\\.)*'", "char"),
-        ]
-        for regex, tag in pat_map:
-            for m in re.finditer(regex, code, re.M | re.S):
+        for pattern, tag, *flags in TOKEN_RULES:
+            flags = flags[0] if flags else 0
+            for m in re.finditer(pattern, code, flags):
                 idx1 = self.text.index(f"{start}+{m.start()}c")
                 idx2 = self.text.index(f"{start}+{m.end()}c")
                 self.text.tag_add(tag, idx1, idx2)
+                self.text.tag_config(tag, **PRISM_COLORS[self.theme][tag])
 
 # ---------------- 启动 ----------------
 if __name__ == "__main__":
