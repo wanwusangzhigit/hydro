@@ -11,3 +11,10 @@
 - [x] 完成ui界面
 ## 说明
 由于`hydro`的版本问题,不保证代码可用,如果不可用,欢迎提交issue.
+
+## 使用方法
+### 主程序
+直接python打开`main.py`即可，需要安装以下依赖。
+``` bash
+pip install bs4 requests
+```
