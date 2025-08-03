@@ -6,10 +6,11 @@ import subprocess
 import time
 import tkinter as tk
 from tkinter import messagebox, simpledialog, filedialog
+import tempfile
+import re
 
 CONFIG_FILE = 'config.json'
 
-# ---------- 工具 ----------
 def load_config():
     return json.load(open(CONFIG_FILE, encoding='utf-8')) if os.path.isfile(CONFIG_FILE) else {}
 
@@ -39,7 +40,6 @@ class SubmitThread(threading.Thread):
         except Exception as e:
             self.exception = str(e)
 
-# ---------- 悬浮窗 ----------
 class FloatingWindow(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -60,6 +60,9 @@ class FloatingWindow(tk.Tk):
         x = self.winfo_pointerx() - self._x
         y = self.winfo_pointery() - self._y
         self.geometry(f'+{x}+{y}')
+
+    def make_topmost(self, win):
+        win.attributes('-topmost', True)
 
     def handle_submit(self):
         cfg = load_config()
@@ -86,13 +89,48 @@ class FloatingWindow(tk.Tk):
         _, ext = os.path.splitext(file_path.lower())
         lang = 'cpp' if ext == '.cpp' else 'python'
 
+        final_path = file_path
+        if lang == 'cpp':
+            fileio_script = os.path.join(os.path.dirname(__file__), 'fileio', 'fileio.py')
+            io_name = '0'
+            if os.path.isfile(fileio_script):
+                try:
+                    io_name = subprocess.run(
+                        [sys.executable, fileio_script, base, pid, user, pwd],
+                        capture_output=True, text=True, timeout=10
+                    ).stdout.strip()
+                except Exception:
+                    pass
+
+            with open(file_path, encoding='utf-8') as f:
+                code = f.read()
+
+            header = (
+                '#include <cstdio>\n'
+                f'static const char FILE_IN[]  = "{io_name}.in";\n'
+                f'static const char FILE_OUT[] = "{io_name}.out";\n'
+                '__attribute__((constructor))\n'
+                'void before_main() {\n'
+                '    freopen(FILE_IN,  "r", stdin);\n'
+                '    freopen(FILE_OUT, "w", stdout);\n'
+                '}\n'
+            )
+            code = header + '\n' + code
+
+            fd, final_path = tempfile.mkstemp(suffix='.cpp')
+            os.write(fd, code.encode('utf-8'))
+            os.close(fd)
+        else:
+            final_path = file_path
+
         submit_script = os.path.join(os.path.dirname(__file__), 'submit', 'submit.py')
         if not os.path.isfile(submit_script):
             messagebox.showerror('错误', f'找不到 {submit_script}')
             return
-        cmd_submit = [sys.executable, submit_script, base, pid, user, pwd, file_path, lang]
+        cmd_submit = [sys.executable, submit_script, base, pid, user, pwd, final_path, lang]
 
         dlg = tk.Toplevel(self)
+        self.make_topmost(dlg)
         dlg.title("提交中")
         dlg.geometry("300x100+200+200")
         dlg.transient(self)
@@ -106,6 +144,8 @@ class FloatingWindow(tk.Tk):
         def check_submit():
             if not worker.is_alive():
                 dlg.destroy()
+                if final_path != file_path and os.path.exists(final_path):
+                    os.remove(final_path)
                 if worker.exception:
                     messagebox.showerror("提交失败", worker.exception)
                     return
@@ -132,6 +172,7 @@ class FloatingWindow(tk.Tk):
         cmd_get = [sys.executable, get_script, base, user, pwd, rid]
 
         def _poll():
+            status, score = "UNKNOWN", "0"
             for _ in range(60):
                 try:
                     result = subprocess.run(cmd_get, capture_output=True, text=True, timeout=10)
@@ -140,7 +181,7 @@ class FloatingWindow(tk.Tk):
                         parts = line.split()
                         status = " ".join(parts[:-1]).upper()
                         score = parts[-1]
-                        if status not in {"PENDING", "JUDGING", "RUNNING","COMPILING"}:
+                        if status not in {"PENDING", "JUDGING", "RUNNING"}:
                             break
                 except Exception:
                     status, score = "ERROR", "0"
@@ -148,10 +189,13 @@ class FloatingWindow(tk.Tk):
                 time.sleep(5)
             else:
                 status, score = "TIMEOUT", "0"
-            messagebox.showinfo("评测结果", f"状态：{status}\n分数：{score}")
+            top = tk.Toplevel(self)
+            self.make_topmost(top)
+            top.title("评测结果")
+            tk.Label(top, text=f"状态：{status}\n分数：{score}", font=("Consolas", 14)).pack(pady=20)
+            tk.Button(top, text="确定", command=top.destroy).pack()
 
         threading.Thread(target=_poll, daemon=True).start()
 
-# ---------- 入口 ----------
 if __name__ == '__main__':
     FloatingWindow().mainloop()
