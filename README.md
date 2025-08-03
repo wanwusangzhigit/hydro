@@ -23,4 +23,4 @@ pip install bs4 requests
 - 使用鼠标右键点击关闭程序。
 - 程序永远置顶。
 - `base_url`为hydrooj中的域的地址
-- `base_url`用，户名，密码保存在`config.json`
+- `base_url`，用户名，密码保存在`config.json`
