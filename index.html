@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>OJ 悬浮助手 · Tech Drop</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root{
+            --bg:#0a0a0a;
+            --accent:#00f5ff;
+            --card:rgba(255,255,255,.06);
+            --text:#e5e5e5;
+            --glow:#00f5ff;
+        }
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Roboto,Arial,sans-serif}
+        body{background:var(--bg);color:var(--text);overflow-x:hidden}
+        #particles-js{position:absolute;width:100%;height:100%;z-index:-1}
+        .container{position:relative;z-index:1;padding:80px 20px;max-width:1200px;margin:0 auto}
+        .hero{display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;text-align:center}
+        .hero h1{font-size:4rem;font-weight:900;background:linear-gradient(45deg,var(--accent),#ff00ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:pulse 2s infinite}
+        .hero p{font-size:1.4rem;letter-spacing:2px;margin-top:10px;opacity:.8}
+        @keyframes pulse{0%,100%{text-shadow:0 0 10px var(--glow)}50%{text-shadow:0 0 20px var(--glow),0 0 30px var(--glow)}}
+        .glass{background:var(--card);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:40px;margin:40px 0;backdrop-filter:blur(20px);transition:transform .4s ease}
+        .glass:hover{transform:translateY(-10px)}
+        .glass h2{font-size:2rem;margin-bottom:25px;text-align:center;color:var(--accent)}
+        .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:30px}
+        .grid-item{background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border-radius:15px;padding:30px;text-align:center;transition:.3s}
+        .grid-item:hover{box-shadow:0 0 20px var(--glow)}
+        .grid-item h3{font-size:1.5rem;margin-bottom:10px;color:var(--accent)}
+        .btn{font-size:1.3rem;padding:15px 40px;border:none;border-radius:50px;background:linear-gradient(45deg,var(--accent),#ff00ff);color:#fff;cursor:pointer;transition:.5s;box-shadow:0 0 15px var(--glow);text-decoration:none;display:inline-block}
+        .btn:hover{transform:scale(1.1);box-shadow:0 0 25px var(--glow)}
+        footer{text-align:center;padding:30px;font-size:.9rem;opacity:.6}
+        @media(max-width:600px){.hero h1{font-size:2.5rem}.btn{font-size:1.1rem;padding:12px 30px}}
+    </style>
+</head>
+<body>
+    <div id="particles-js"></div>
+
+    <div class="container">
+        <section class="hero">
+            <h1>OJ 悬浮助手</h1>
+            <p>v1.1.0</p>
+        </section>
+
+        <section class="glass">
+            <h2>核心能力</h2>
+            <div class="grid">
+                <div class="grid-item"><h3>一键提交</h3><p>拖拽代码→自动判题→秒级返回</p></div>
+                <div class="grid-item"><h3>FileIO Auto</h3><p>无 freopen 自动插入 .in/.out</p></div>
+                <div class="grid-item"><h3>实时评测</h3><p>状态轮询 + 置顶弹窗提示</p></div>
+                <div class="grid-item"><h3>模板引擎</h3><p>内置算法模板库，一键复制</p></div>
+            </div>
+        </section>
+
+        <section class="glass" style="text-align:center">
+            <h2>立即体验</h2>
+            <div style="display:flex;justify-content:center;gap:20px;flex-wrap:wrap;margin-top:20px">
+                <a class="btn" href="./OJHelper.exe" download>下载 EXE</a>
+                <a class="btn" href="https://github.com/wanwusangzhigit/hydro" target="_blank">GitHub 仓库</a>
+            </div>
+        </section>
+
+        <footer>
+            &copy; 2025 OJ Helper x 玩物丧稚 MIT
+        </footer>
+    </div>
+
+    <script src="./particles.min.js"></script>
+    <script>
+        particlesJS('particles-js', {
+            particles:{number:{value:80,density:{enable:!0,value_area:800}},color:{value:"#00f5ff"},
+            shape:{type:"circle"},opacity:{value:.5,random:!0},size:{value:3,random:!0},
+            line_linked:{enable:!0,distance:150,color:"#00f5ff",opacity:.4,width:1},
+            move:{enable:!0,speed:2,direction:"none",random:!1,straight:!1,out_mode:"out",bounce:!1}},
+            interactivity:{detect_on:"canvas",events:{onhover:{enable:!0,mode:"grab"},onclick:{enable:!0,mode:"push"}}}
+        });
+    </script>
+</body>
+</html>
