@@ -5,12 +5,13 @@ import threading
 import subprocess
 import time
 import tkinter as tk
-from tkinter import messagebox, simpledialog, filedialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 import tempfile
 import re
 
 CONFIG_FILE = 'config.json'
 
+# ---------- 工具 ----------
 def load_config():
     return json.load(open(CONFIG_FILE, encoding='utf-8')) if os.path.isfile(CONFIG_FILE) else {}
 
@@ -40,6 +41,104 @@ class SubmitThread(threading.Thread):
         except Exception as e:
             self.exception = str(e)
 
+# ---------- 模板浏览器 ----------
+TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "json.json")
+
+def load_templates():
+    try:
+        with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list) and all("名称" in d and "描述" in d and "代码" in d for d in data):
+                return data
+    except Exception as e:
+        messagebox.showerror("错误", f"读取 json.json 失败：\n{e}")
+    return []
+
+class TemplateWindow(tk.Toplevel):
+    def __init__(self, master):
+        super().__init__(master)
+        self.title("信息竞赛模板浏览器")
+        self.geometry("620x420")
+        master.make_topmost(self)
+        self.transient(master)
+
+        self.templates = load_templates()
+        self.create_widgets()
+        if self.templates:
+            self.show_all()
+        else:
+            self.code_text.insert("end", "json.json 加载失败或无数据")
+
+    def create_widgets(self):
+        # 搜索框
+        search_frame = ttk.Frame(self)
+        search_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Label(search_frame, text="搜索：").pack(side="left")
+        self.search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
+        search_entry.pack(side="left", fill="x", expand=True, padx=5)
+        ttk.Button(search_frame, text="搜索", command=self.do_search).pack(side="left")
+        ttk.Button(search_frame, text="全部", command=self.show_all).pack(side="left", padx=2)
+
+        # 主区域：Treeview + 代码预览
+        paned = ttk.PanedWindow(self, orient="horizontal")
+        paned.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.tree = ttk.Treeview(paned, columns=("描述",), show="tree headings", height=15)
+        self.tree.heading("#0", text="名称")
+        self.tree.column("#0", width=180)
+        self.tree.heading("描述", text="描述")
+        self.tree.column("描述", width=300)
+        self.tree.bind("<<TreeviewSelect>>", self.on_select)
+        paned.add(self.tree)
+
+        code_frame = ttk.Labelframe(paned, text="代码预览")
+        paned.add(code_frame)
+        self.code_text = tk.Text(code_frame, wrap="none", font=("Consolas", 11))
+        self.code_text.pack(fill="both", expand=True)
+        vsb = ttk.Scrollbar(code_frame, orient="vertical", command=self.code_text.yview)
+        self.code_text.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+
+        # 底部按钮
+        ctrl = ttk.Frame(self)
+        ctrl.pack(fill="x", padx=5, pady=2)
+        ttk.Button(ctrl, text="复制代码", command=self.copy_code).pack(side="right")
+
+    def show_all(self):
+        self.tree.delete(*self.tree.get_children())
+        for item in self.templates:
+            self.tree.insert("", "end", text=item["名称"], values=(item["描述"],))
+
+    def do_search(self):
+        keyword = self.search_var.get().strip().lower()
+        self.tree.delete(*self.tree.get_children())
+        for item in self.templates:
+            if keyword in item["名称"].lower() or keyword in item["描述"].lower():
+                self.tree.insert("", "end", text=item["名称"], values=(item["描述"],))
+
+    def on_select(self, _):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        name = self.tree.item(sel[0], "text")
+        item = next((i for i in self.templates if i["名称"] == name), None)
+        if not item:
+            return
+        self.code_text.delete("1.0", "end")
+        self.code_text.insert("end", item["代码"])
+
+    def copy_code(self):
+        code = self.code_text.get("1.0", "end-1c")
+        if not code:
+            messagebox.showwarning("提示", "没有可复制的代码")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(code)
+        self.update()
+        messagebox.showinfo("完成", "已复制到剪贴板")
+
+# ---------- 悬浮窗 ----------
 class FloatingWindow(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -50,7 +149,11 @@ class FloatingWindow(tk.Tk):
         self._x = self._y = 0
         self.bind('<Button-1>', self._click)
         self.bind('<B1-Motion>', self._drag)
-        tk.Button(self, text='提交', command=self.handle_submit).pack(expand=True)
+        # 按钮区
+        btn_frame = tk.Frame(self)
+        btn_frame.pack(expand=True)
+        tk.Button(btn_frame, text='提交', command=self.handle_submit).pack(side='left', padx=5)
+        tk.Button(btn_frame, text='模板', command=self.open_template).pack(side='left', padx=5)
         self.bind('<Button-3>', lambda e: self.destroy())
 
     def _click(self, event):
@@ -64,6 +167,10 @@ class FloatingWindow(tk.Tk):
     def make_topmost(self, win):
         win.attributes('-topmost', True)
 
+    def open_template(self):
+        TemplateWindow(self)
+
+    # ---------- 提交逻辑 ----------
     def handle_submit(self):
         cfg = load_config()
         if cfg:
@@ -116,7 +223,6 @@ class FloatingWindow(tk.Tk):
                 '}\n'
             )
             code = header + '\n' + code
-
             fd, final_path = tempfile.mkstemp(suffix='.cpp')
             os.write(fd, code.encode('utf-8'))
             os.close(fd)
